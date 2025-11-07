@@ -150,6 +150,15 @@ dmypy.json
 .pyre/
 .pylintrc
 .vscode/
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+packages.config
+packages/
+x64/
+EscapeRoom/
 
 # ROMs
 *.gb
