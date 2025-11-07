@@ -5,7 +5,7 @@
 
 #define ROOM_SIZE 7
 #define PIXEL_SIZE 64
-#define TESTING 1
+#define TESTING 0
 
 const unsigned char DOWN = 0;
 const unsigned char UP = 1;
