@@ -5,7 +5,7 @@
 
 static int my_init(Env* env, PyObject* args, PyObject* kwargs) {
     env->size = unpack(kwargs, "size");
-    init_cescape_room();
+    init_cescape_room(env);
     return 0;
 }
 
