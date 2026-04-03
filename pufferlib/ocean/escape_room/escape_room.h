@@ -3,14 +3,16 @@
 #include "raylib.h"
 #include <math.h>
 
-#define ROOM_SIZE 7
-#define PIXEL_SIZE 64
 #define TESTING 0
+#define ROOM_SIZE 13
+#define PIXEL_SIZE 64
+#define MAX_STEP 100
 
-const unsigned char DOWN = 0;
+const unsigned char NONE = 0;
 const unsigned char UP = 1;
-const unsigned char LEFT = 2;
-const unsigned char RIGHT = 3;
+const unsigned char DOWN = 2;
+const unsigned char LEFT = 3;
+const unsigned char RIGHT = 4;
 
 const unsigned char EMPTY = 0;
 const unsigned char WALL = 1;
@@ -41,42 +43,26 @@ typedef struct {
     float* rewards; // Required
     unsigned char* terminals; // Required. We don't yet have truncations as standard yet
     int size;
-    int tick;
+    int step_count;
     int x;
     int y;
-    unsigned char* walls;
     unsigned char* tiles;
-    int door_positions;
-    int door;
+    int door_x;
+    int door_y;
     Client* client;
 } EscapeRoom;
 
 void add_log(EscapeRoom* env) {
     env->log.perf += (env->rewards[0] > 0) ? 1 : 0;
     env->log.score += env->rewards[0];
-    env->log.episode_length += env->tick;
+    env->log.episode_length += env->step_count;
     env->log.episode_return += env->rewards[0];
     env->log.n++;
-}
-
-void init_cescape_room(EscapeRoom* env) {
-    env->door_positions = env->size * 4 - 8;
-    env->walls = (unsigned char*)calloc(env->door_positions, sizeof(unsigned char));
-    env->tiles = (unsigned char*)calloc(env->size * env->size, sizeof(unsigned char));
-}
-
-void allocates_cescape_room(EscapeRoom* env) {
-    env->observations = (unsigned char*)calloc(5, sizeof(unsigned char));
-    env->actions = (int*)calloc(1, sizeof(int));
-    env->rewards = (float*)calloc(1, sizeof(float));
-    env->terminals = (unsigned char*)calloc(1, sizeof(unsigned char));
-    init_cescape_room(env);
 }
 
 // Required function. Should clean up anything you allocated
 // Do not free env->observations, actions, rewards, terminals
 void c_close(EscapeRoom* env) {
-    free(env->walls);
     free(env->tiles);
 }
 
@@ -110,80 +96,84 @@ void close_client(Client* client) {
 }
 
 void set_observations(EscapeRoom* env) {
-    int doorX = env->door % env->size;
-    int doorY = env->door / env->size;
-    double distance = sqrt(pow(doorX - env->x, 2) + pow(doorY - env->y, 2));
-    //printf("distance: %d", (int)distance);
+    env->observations[0] = env->y * env->size + env->x;
+    env->observations[1] = env->door_y * env->size + env->door_x;
+}
 
+void set_door_pos(EscapeRoom* env) {
+    int side = rand() % 4;
+    switch (side) {
+    case 0:
+        env->door_y = 0;
+        env->door_x = env->size / 2;
+        break;
+    case 1:
+        env->door_y = env->size - 1;
+        env->door_x = env->size / 2;
+        break;
+    case 2:
+        env->door_y = env->size / 2;
+        env->door_x = 0;
+        break;
+    default:
+        env->door_y = env->size / 2;
+        env->door_x = env->size - 1;
+        break;
+    }
 
-    env->observations[0] = env->x;
-    env->observations[1] = env->y;
-    env->observations[2] = doorX;
-    env->observations[3] = doorY;
-    env->observations[4] = (int)distance;
-
-    //printf("door.x: %d, door.y: %d\n", env->door % env->size, env->door / env->size);
+    int door_pos = env->door_y * env->size + env->door_x;
+    env->tiles[door_pos] = TARGET;
 }
 
 // Required function
 void c_reset(EscapeRoom* env) {
     int map_size = env->size * env->size;
     memset(env->tiles, 0, map_size * sizeof(unsigned char));
-    memset(env->walls, 0, env->door_positions * sizeof(unsigned char));
     env->tiles[map_size / 2] = AGENT;
     env->x = env->size / 2;
     env->y = env->size / 2;
-    env->tick = 0;
-    int currentWallCount = 0;
+    env->step_count = 0;
 
     for (int i = 0; i < env->size; i++) {
         for (int j = 0; j < env->size; j++) {
             if (i % env->size == 0 || i % env->size == env->size - 1 || j % env->size == 0 || j % env->size == env->size - 1) {
                 int index = i * env->size + j;
                 env->tiles[index] = WALL;
-                if (is_corner(index) != 1) {
-                    env->walls[currentWallCount] = index;
-                    currentWallCount++;
-                }
             }
         }
     }
 
-    int wall = rand() % env->door_positions;
-    env->door = env->walls[wall];
-    env->tiles[env->door] = TARGET;
+    set_door_pos(env);
     set_observations(env);
 }
 
 // Required function
 void c_step(EscapeRoom* env) {
-    env->tick += 1;
-
+    env->step_count += 1;
     int action = env->actions[0];
     env->terminals[0] = 0;
     env->rewards[0] = 0;
 
     env->tiles[env->y * env->size + env->x] = EMPTY;
 
-    //printf("action: %d\n", action);
-
     if (action == DOWN) {
-        env->y -= 1;
+        env->y += 1;
     }
     else if (action == RIGHT) {
         env->x += 1;
     }
     else if (action == UP) {
-        env->y += 1;
+        env->y -= 1;
     }
     else if (action == LEFT) {
         env->x -= 1;
     }
 
     int pos = env->y * env->size + env->x;
-    if (env->tick > 3 * env->size) {
+
+    if (env->tiles[pos] == TARGET) {
         env->terminals[0] = 1;
-        env->rewards[0] = 0.0;
+        env->rewards[0] = 1.0;
         add_log(env);
         c_reset(env);
         return;
@@ -195,9 +185,10 @@ void c_step(EscapeRoom* env) {
         c_reset(env);
         return;
     }
-    else if (env->tiles[pos] == TARGET) {
+    else if (env->step_count >= MAX_STEP) {
         env->terminals[0] = 1;
-        env->rewards[0] = 1.0;
+        env->rewards[0] = 0.0;
+
         add_log(env);
         c_reset(env);
         return;
@@ -205,6 +196,7 @@ void c_step(EscapeRoom* env) {
     else {
         env->tiles[pos] = AGENT;
         set_observations(env);
+        env->rewards[0] = -1.0;
     }
 }
 
@@ -228,7 +220,6 @@ void c_render(EscapeRoom* env) {
     for (int i = 0; i < env->size; i++) {
         for (int j = 0; j < env->size; j++) {
             int tex = env->tiles[i * env->size + j];
-            //const char* tileIndex = TextFormat("x: %d, y: %d", j, i);
 
             Color color = (Color){ 1, 123, 146, 255 };
             switch (tex) {
@@ -271,17 +262,22 @@ void c_render(EscapeRoom* env) {
                 DrawRectangleLines(j * PIXEL_SIZE, i * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE, WHITE);
                 break;
             }
-            //DrawText(tileIndex, j* PIXEL_SIZE, i* PIXEL_SIZE, 5, WHITE);
         }
     }
 
-    DrawRectangleLines((env->door % env->size) * PIXEL_SIZE, (env->door / env->size)* PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE, RED);
+    DrawRectangleLines((env->door_x) * PIXEL_SIZE, (env->door_y) * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE, RED);
     EndDrawing();
 }
 
-int is_corner(int tile) {
-    if (tile == 0 || tile == ROOM_SIZE - 1 || tile == ROOM_SIZE * ROOM_SIZE - 1 || tile == ROOM_SIZE * ROOM_SIZE - ROOM_SIZE) {
-        return 1;
-    }
-    return 0;
+void init_cescape_room(EscapeRoom* env) {
+    env->tiles = (unsigned char*)calloc(env->size * env->size, sizeof(unsigned char));
+    c_reset(env);
+}
+
+void allocates_cescape_room(EscapeRoom* env) {
+    env->observations = (unsigned char*)calloc(2, sizeof(unsigned char));
+    env->actions = (int*)calloc(1, sizeof(int));
+    env->rewards = (float*)calloc(1, sizeof(float));
+    env->terminals = (unsigned char*)calloc(1, sizeof(unsigned char));
+    init_cescape_room(env);
 }

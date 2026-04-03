@@ -5,9 +5,9 @@ import pufferlib
 from pufferlib.ocean.escape_room import binding
 
 class EscapeRoom(pufferlib.PufferEnv):
-    def __init__(self, num_envs=1, render_mode=None, log_interval=128, size=7, buf=None, seed=0):
+    def __init__(self, num_envs=1, render_mode=None, log_interval=128, size=13, buf=None, seed=0):
         self.single_observation_space = gymnasium.spaces.Box(low=0, high=1,
-            shape=(5,), dtype=np.uint8)
+            shape=(2,), dtype=np.uint8)
         self.single_action_space = gymnasium.spaces.Discrete(5)
         self.render_mode = render_mode
         self.num_agents = num_envs
@@ -19,17 +19,17 @@ class EscapeRoom(pufferlib.PufferEnv):
  
     def reset(self, seed=0):
         binding.vec_reset(self.c_envs, seed)
-        self.tick = 0
+        self.step_count = 0
         return self.observations, []
 
     def step(self, actions):
-        self.tick += 1
+        self.step_count += 1
 
         self.actions[:] = actions
         binding.vec_step(self.c_envs)
 
         info = []
-        if self.tick % self.log_interval == 0:
+        if self.step_count % self.log_interval == 0:
             info.append(binding.vec_log(self.c_envs))
 
         return (self.observations, self.rewards,
@@ -42,14 +42,14 @@ class EscapeRoom(pufferlib.PufferEnv):
         binding.vec_close(self.c_envs)
 
 if __name__ == '__main__':
-    N = 4096
+    N = 40
 
     env = EscapeRoom(num_envs=N)
     env.reset()
     steps = 0
 
     CACHE = 1024
-    actions = np.random.randint(0, 4, (CACHE, N))
+    actions = np.random.randint(0, 5, (CACHE, N))
 
     i = 0
     import time
