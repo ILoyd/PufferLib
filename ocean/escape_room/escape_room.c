@@ -22,6 +22,6 @@ int main()
         c_step(&env);
         c_render(&env);
     }
-    close_client(env.client);
     free_cescape_room(&env);
+    return 0;
 }

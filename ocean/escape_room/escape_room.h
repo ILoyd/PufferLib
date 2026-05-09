@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
-#include "raylib.h"
 #include <math.h>
+#include "raylib.h"
 
 #define TESTING 0
 #define ROOM_SIZE 13
@@ -38,18 +38,20 @@ typedef struct {
 // Recommended that you name it the same as the env file
 typedef struct {
     Log log; // Required field. Env binding code uses this to aggregate logs
-    unsigned char* observations; // Required. You can use any obs type, but make sure it matches in Python!
-    int* actions; // Required. int* for discrete/multidiscrete, float* for box
+    Client* client;
+    float* observations; // Required. You can use any obs type, but make sure it matches in Python!
+    float* actions; // Required
     float* rewards; // Required
-    unsigned char* terminals; // Required. We don't yet have truncations as standard yet
+    float* terminals; // Required
+    unsigned char* tiles;
+    int num_agents;
     int size;
     int step_count;
     int x;
     int y;
-    unsigned char* tiles;
     int door_x;
     int door_y;
-    Client* client;
+    unsigned int rng;
 } EscapeRoom;
 
 void add_log(EscapeRoom* env) {
@@ -60,22 +62,7 @@ void add_log(EscapeRoom* env) {
     env->log.n++;
 }
 
-// Required function. Should clean up anything you allocated
-// Do not free env->observations, actions, rewards, terminals
-void c_close(EscapeRoom* env) {
-    free(env->tiles);
-}
-
-void free_cescape_room(EscapeRoom* env) {
-    c_close(env);
-    free(env->observations);
-    free(env->actions);
-    free(env->rewards);
-}
-
-Client* make_client(int cell_size, int width, int height) {
-    InitWindow(width * cell_size, height * cell_size, "PufferLib Escape Room");
-    SetTargetFPS(5);
+Client* make_client() {
     Client* client = (Client*)malloc(sizeof(Client));
     if (TESTING == 1) {
         client->wall = LoadTexture("../../resources/escape_room/wall.png");
@@ -89,10 +76,14 @@ Client* make_client(int cell_size, int width, int height) {
 }
 
 void close_client(Client* client) {
-    CloseWindow();
     UnloadTexture(client->puffer);
     UnloadTexture(client->wall);
+    CloseWindow();
     free(client);
+}
+
+void init_cescape_room(EscapeRoom* env) {
+    env->tiles = (unsigned char*)calloc(env->size * env->size, sizeof(unsigned char));
 }
 
 void set_observations(EscapeRoom* env) {
@@ -128,16 +119,17 @@ void set_door_pos(EscapeRoom* env) {
 // Required function
 void c_reset(EscapeRoom* env) {
     int map_size = env->size * env->size;
-    memset(env->tiles, 0, map_size * sizeof(unsigned char));
+    memset(env->tiles, 0, map_size*sizeof(unsigned char));
     env->tiles[map_size / 2] = AGENT;
     env->x = env->size / 2;
     env->y = env->size / 2;
     env->step_count = 0;
 
+    int index = 0;
     for (int i = 0; i < env->size; i++) {
         for (int j = 0; j < env->size; j++) {
+            index = i * env->size + j;
             if (i % env->size == 0 || i % env->size == env->size - 1 || j % env->size == 0 || j % env->size == env->size - 1) {
-                int index = i * env->size + j;
                 env->tiles[index] = WALL;
             }
         }
@@ -150,7 +142,7 @@ void c_reset(EscapeRoom* env) {
 // Required function
 void c_step(EscapeRoom* env) {
     env->step_count += 1;
-    int action = env->actions[0];
+    int action = (int)env->actions[0];
     env->terminals[0] = 0;
     env->rewards[0] = 0;
 
@@ -187,7 +179,7 @@ void c_step(EscapeRoom* env) {
     }
     else if (env->step_count >= MAX_STEP) {
         env->terminals[0] = 1;
-        env->rewards[0] = 0.0;
+        env->rewards[0] = -1.0;
 
         add_log(env);
         c_reset(env);
@@ -196,20 +188,21 @@ void c_step(EscapeRoom* env) {
     else {
         env->tiles[pos] = AGENT;
         set_observations(env);
-        env->rewards[0] = -1.0;
+        env->rewards[0] = -0.01;
     }
 }
 
 // Required function. Should handle creating the client on first call
 void c_render(EscapeRoom* env) {
+    if (env->client == NULL) {
+        InitWindow(env->size * PIXEL_SIZE, env->size * PIXEL_SIZE, "PufferLib Escape Room");
+        SetTargetFPS(5);
+        env->client = make_client();
+    }
 
     // Standard across our envs so exiting is always the same
     if (IsKeyDown(KEY_ESCAPE)) {
         exit(0);
-    }
-
-    if (env->client == NULL) {
-        env->client = make_client(PIXEL_SIZE, env->size, env->size);
     }
 
     Client* client = env->client;
@@ -269,15 +262,28 @@ void c_render(EscapeRoom* env) {
     EndDrawing();
 }
 
-void init_cescape_room(EscapeRoom* env) {
-    env->tiles = (unsigned char*)calloc(env->size * env->size, sizeof(unsigned char));
-    c_reset(env);
+// Required function. Should clean up anything you allocated
+// Do not free env->observations, actions, rewards, terminals
+void c_close(EscapeRoom* env) {
+    free(env->tiles);
+    if (env->client != NULL) {
+        close_client(env->client);
+    }
 }
 
+
 void allocates_cescape_room(EscapeRoom* env) {
-    env->observations = (unsigned char*)calloc(2, sizeof(unsigned char));
-    env->actions = (int*)calloc(1, sizeof(int));
+    env->observations = (float*)calloc(2, sizeof(float));
+    env->actions = (float*)calloc(1, sizeof(float));
     env->rewards = (float*)calloc(1, sizeof(float));
-    env->terminals = (unsigned char*)calloc(1, sizeof(unsigned char));
+    env->terminals = (float*)calloc(1, sizeof(float));
     init_cescape_room(env);
+}
+
+void free_cescape_room(EscapeRoom* env) {
+    free(env->observations);
+    free(env->actions);
+    free(env->rewards);
+    free(env->terminals);
+    c_close(env);
 }
