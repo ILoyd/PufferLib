@@ -1,5 +1,5 @@
 #include "escape_room.h"
-#define OBS_SIZE 2
+#define OBS_SIZE 5
 #define NUM_ATNS 1
 #define ACT_SIZES {5}
 #define OBS_TENSOR_T FloatTensor
